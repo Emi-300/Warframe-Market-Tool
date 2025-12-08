@@ -16,6 +16,9 @@ test_color_2 = "#d70e0e"
 
 lines_in_set_list = 47
 
+#TODO click on username to generate warframe chat message for item
+#TODO add the guns to prime set list
+
 def search(itemName):
     itemName = itemName.lower()
     slug = itemName.replace(" ","_")
@@ -31,7 +34,6 @@ def search(itemName):
     else:
         print(f"Error: {response.status_code}")
         return(f"Error: {response.status_code}")
-    
 
 def parse(data,itemRank=0):
 
@@ -88,7 +90,12 @@ def grofitLookupItem(input):
 
     data = getStatistics(parse(search(input)))
 
-    return {"average": data["average price"], "lowest": data["lowest price"],"median": data["median price"],"parts sum": lowestSum,"set_to_parts_ratio": round(data["median price"]/lowestSum,3) if lowestSum > 0 else 0}
+    setToPartsRatio = 0
+    if toggleGrofitMode.get():
+        setToPartsRatio = round(data["median price"]/lowestSum,3) if lowestSum > 0 else 0
+    else:
+        setToPartsRatio = round(data["lowest price"]/lowestSum,3) if lowestSum > 0 else 0
+    return {"average": data["average price"], "lowest": data["lowest price"],"median": data["median price"],"parts sum": lowestSum,"set_to_parts_ratio": setToPartsRatio}
 
 def lookupItem():
     input = itemEntry.get()
@@ -231,14 +238,13 @@ def grofitSearch():
             setName = f"{line.strip()} prime set"
             result = grofitLookupItem(setName)
             result.update({"name": setName})
-            
+
             df = pd.concat([df,pd.DataFrame([result])],ignore_index=True)
             print(f"{setName} - Average: {result['average']} platinum, Median {result['median']} platinum, Lowest: {result['lowest']} platinum, Parts Sum Lowest: {result['parts sum']} platinum")
             grofit_progress.step(1)
             grofitWindow.update_idletasks()
     
     df = df.sort_values(by="set_to_parts_ratio", ascending=False)
-
 
     grofitText = tk.Text(grofitWindow, bg=background_color,fg="white",width=50,wrap=tk.NONE)
     grofitText.pack(fill=BOTH, expand=True)
@@ -258,6 +264,7 @@ root.configure(bg=background_color)
 #search bar
 
 toggleOnline = tk.BooleanVar()
+toggleGrofitMode = tk.BooleanVar()
 
 searchBar = tk.Frame(root, bg=background_color)
 searchBar.pack(side=tk.TOP,fill = BOTH, expand = False)
@@ -358,6 +365,18 @@ table.config(yscrollcommand=tableScrollBar.set)
 
 grofitButton = tk.Button(searchBar, text="Run Grofit Search", command=grofitSearch)
 grofitButton.pack(padx=5, pady=20,side=tk.RIGHT)
+
+def changeGrofitMode():
+    if toggleGrofitMode.get():
+        toggleGrofitMode.set(False)
+        grofitModeButton.config(text="lowest")
+    else:
+        toggleGrofitMode.set(True)
+        grofitModeButton.config(text="median")
+
+grofitModeButton = tk.Button(searchBar, text="lowest", command=changeGrofitMode)
+grofitModeButton.pack(padx=5, pady=20,side=tk.RIGHT)
+
 
 
 
