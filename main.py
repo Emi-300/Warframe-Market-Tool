@@ -19,17 +19,22 @@ lines_in_set_list = 47
 #TODO click on username to generate warframe chat message for item
 #TODO add the guns to prime set list
 
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+
 def search(itemName):
     itemName = itemName.lower()
     slug = itemName.replace(" ","_")
     url = f"https://api.warframe.market/v2/orders/item/{slug}"
 
     response = requests.get(url)
-
+    
     if response.status_code == 200:
         data = response.json()
         # Process the data (e.g., get the 90-day average price)
         # The structure will be data['payload']['statistics_live']['48hours'][...]
+
+
         return(data)
     else:
         print(f"Error: {response.status_code}")
@@ -37,6 +42,9 @@ def search(itemName):
 
 def parse(data,itemRank=0):
 
+    if type(data) == str:
+        return data
+    
     orderList = data["data"]
     
     df = pd.json_normalize(orderList)
@@ -51,8 +59,6 @@ def parse(data,itemRank=0):
     else:
         df = df[["type","platinum","user.ingameName","user.status","updatedAt"]]
 
-    df = df[df["type"] == "sell"]
-
     df = df.sort_values(by="platinum")
 
     df = df[df["platinum"] > 1]
@@ -61,8 +67,13 @@ def parse(data,itemRank=0):
 
 def getStatistics(data,rank=0):
 
+    if type(data) == str:
+        return data
+    
     if "rank" in data.columns:
         data = data[data["rank"] == rank]
+
+    data = data[data["type"] == "sell"]
 
     lowestPrice = data["platinum"].min()
     avgPrice = round(data["platinum"].mean(),2)
@@ -71,6 +82,33 @@ def getStatistics(data,rank=0):
 
     return {"lowest price":lowestPrice, "average price":avgPrice, "median price": medPrice}
 
+def getTimeStatistics(data,rank=0):
+
+    if type(data) == str:
+        return data
+    
+    if "rank" in data.columns:
+        data = data[data["rank"] == rank]
+
+    # Ensure updatedAt is a valid datetime and drop invalid rows
+    data["updatedAt"] = pd.to_datetime(data["updatedAt"], errors='coerce')
+    data = data.dropna(subset=["updatedAt"])
+    data["updatedAt"] = data["updatedAt"].dt.tz_localize(None)
+    one_week_ago = pd.Timestamp.now().normalize() - pd.Timedelta(days=7)
+    one_month_ago = pd.Timestamp.now().normalize() - pd.Timedelta(days=30)
+
+    recent_data = data[data["updatedAt"] >= one_week_ago]
+    recent_buy_orders = recent_data[recent_data["type"] == "buy"].shape[0]
+    recent_sell_orders = recent_data[recent_data["type"] == "sell"].shape[0]
+
+    less_recent_data = data[data["updatedAt"] >= one_month_ago]
+    less_recent_buy_orders = less_recent_data[less_recent_data["type"] == "buy"].shape[0]
+    less_recent_sell_orders = less_recent_data[less_recent_data["type"] == "sell"].shape[0]
+
+
+    return {"buy orders (7d)": recent_buy_orders, "sell orders (7d)": recent_sell_orders, 
+            "buy orders (30d)": less_recent_buy_orders, "sell orders (30d)": less_recent_sell_orders}
+    
 # FOR UI
 
 def grofitLookupItem(input):
@@ -81,6 +119,8 @@ def grofitLookupItem(input):
 
         partInput = f"{inputSet} {part}"
         partData = search(partInput)
+        partData = partData[partData["type"] == "sell"]
+
         if(type(partData) == dict):
             partPrice= getStatistics(parse(partData))
         else:
@@ -126,25 +166,38 @@ def lookupItem():
 
             avgSum += partPrice['average price'] if isinstance(partPrice['average price'], (int, float)) else 0
             lowestSum += partPrice['lowest price'] if partPrice['lowest price'] != "Erorr fetching data" else 0
-            print(lowestSum)
 
             displayText += f"{part}: {partPrice['average price']} platinum, lowest {partPrice['lowest price']} platinum\n"
         
         displayText += f"Total - Average: {avgSum}, Lowest: {lowestSum}"
         partsDisplay.config(text=displayText)
-
-
+    
+    #Stats
+    
     data = parse(search(input), rank_val)
-    text = " | ".join([f"{key}: {value}" for key, value in getStatistics(data, rank_val).items()])
-    stats.config(text=text)
+
+    if type(data) == str:
+        stats.config(text=data)
+    else:
+        text = " | ".join([f"{key}: {value}" for key, value in getStatistics(data, rank_val).items()])
+        text += "\n"
+        text += " | ".join([f"{key}: {value}" for key, value in getTimeStatistics(data, rank_val).items()])
+        stats.config(text=text)
+
 
     #table
-    tableData = data[["platinum","user.ingameName"]]
     table.delete("1.0","end")
-    table.insert("end", tableData.to_string())
+
+    if type(data) == str:
+        table.insert("end", data)
+    else:
+        tableData = data[["platinum","user.ingameName"]]
+        table.insert("end", tableData.to_string())
+
 
     # graphs
-
+    if type(data) == str:
+        return
     # keep full data for the time-series and make a separate hist dataset
     full = data.copy()
 
