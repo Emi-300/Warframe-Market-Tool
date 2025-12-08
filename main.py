@@ -4,14 +4,17 @@ import numpy as np
 import tkinter as tk
 import matplotlib.pyplot as plt
 from tkinter import * 
+from tkinter import ttk
 from tkinter.ttk import *
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-background_color = "#1e1e23"
+background_color = "#3B2D39"
+background_color_2 = "#34354B"
 test_color = "#69d928"
 test_color_2 = "#d70e0e"
 
+lines_in_set_list = 47
 
 def search(itemName):
     itemName = itemName.lower()
@@ -20,14 +23,13 @@ def search(itemName):
 
     response = requests.get(url)
 
-    print(f"Status Code: {response.status_code}")
-
     if response.status_code == 200:
         data = response.json()
         # Process the data (e.g., get the 90-day average price)
         # The structure will be data['payload']['statistics_live']['48hours'][...]
         return(data)
     else:
+        print(f"Error: {response.status_code}")
         return(f"Error: {response.status_code}")
     
 
@@ -36,20 +38,16 @@ def parse(data,itemRank=0):
     orderList = data["data"]
     
     df = pd.json_normalize(orderList)
-    print(df.columns)
-    # df = pd.DataFrame()
-    # for order in orderList: 
-    #     userName = order["user"]["ingameName"]
-    #     order.update({"user":userName})
-    #     df = pd.concat([df,pd.Series(order)])
 
+    if toggleOnline.get():
+        df = df[df["user.status"] == "ingame"]
 
     if "rank" in df.columns:
         # filter the DataFrame by rank (don't try to index the original JSON dict)
         df = df[df["rank"] == itemRank]
-        df = df[["type","platinum","rank","user.ingameName","user.slug","updatedAt"]]
+        df = df[["type","platinum","rank","user.ingameName","user.status","updatedAt"]]
     else:
-        df = df[["type","platinum","user.ingameName","user.slug","updatedAt"]]
+        df = df[["type","platinum","user.ingameName","user.status","updatedAt"]]
 
     df = df[df["type"] == "sell"]
 
@@ -71,8 +69,26 @@ def getStatistics(data,rank=0):
 
     return {"lowest price":lowestPrice, "average price":avgPrice, "median price": medPrice}
 
-
 # FOR UI
+
+def grofitLookupItem(input):
+    lowestSum = 0
+    inputSet = input.replace(" set","")
+    parts = ["neuroptics blueprint","chassis blueprint","systems blueprint","blueprint"]
+    for part in parts:
+
+        partInput = f"{inputSet} {part}"
+        partData = search(partInput)
+        if(type(partData) == dict):
+            partPrice= getStatistics(parse(partData))
+        else:
+            partPrice = {'average price' : "Erorr fetching data", "lowest price" : "Error fetching data"}
+            
+        lowestSum += partPrice['lowest price'] if partPrice['lowest price'] != "Erorr fetching data" else 0
+
+    data = getStatistics(parse(search(input)))
+
+    return {"average": data["average price"], "lowest": data["lowest price"],"median": data["median price"],"parts sum": lowestSum,"set_to_parts_ratio": round(data["median price"]/lowestSum,3) if lowestSum > 0 else 0}
 
 def lookupItem():
     input = itemEntry.get()
@@ -195,12 +211,53 @@ def lookupItem():
     graph1.draw()
     graph2.draw()
     
+def grofitSearch():
+    grofitWindow = tk.Toplevel(root)
+    grofitWindow.title("Grofit Search")
+    grofitWindow.geometry("400x300")
+
+    #read set list from file
+    df = pd.DataFrame()
+
+    grofit_progress = ttk.Progressbar(grofitWindow, orient="horizontal", length=300, mode="determinate")
+    grofit_progress.pack(pady=10)
+    grofit_progress["maximum"] = lines_in_set_list
+
+    grofitWindow.update_idletasks()       # ensure widgets are created
+    grofitWindow.wait_visibility()       # block until shown
+
+    with open("prime_set_list.txt","r") as f:
+        for line in f:
+            setName = f"{line.strip()} prime set"
+            result = grofitLookupItem(setName)
+            result.update({"name": setName})
+            
+            df = pd.concat([df,pd.DataFrame([result])],ignore_index=True)
+            print(f"{setName} - Average: {result['average']} platinum, Median {result['median']} platinum, Lowest: {result['lowest']} platinum, Parts Sum Lowest: {result['parts sum']} platinum")
+            grofit_progress.step(1)
+            grofitWindow.update_idletasks()
+    
+    df = df.sort_values(by="set_to_parts_ratio", ascending=False)
+
+
+    grofitText = tk.Text(grofitWindow, bg=background_color,fg="white",width=50,wrap=tk.NONE)
+    grofitText.pack(fill=BOTH, expand=True)
+
+    grofitText.insert("end", df.to_string())
+
+
+
+
 
 
 root = tk.Tk()
 root.title("Market manipulator 3000") # Set the window title
 root.geometry("1000x700") # Set the initial window size (width x height)
 root.configure(bg=background_color) 
+
+#search bar
+
+toggleOnline = tk.BooleanVar()
 
 searchBar = tk.Frame(root, bg=background_color)
 searchBar.pack(side=tk.TOP,fill = BOTH, expand = False)
@@ -217,6 +274,16 @@ rankEntry.pack(padx=5, pady=20,side=tk.LEFT)
 button = tk.Button(searchBar, text="Search", command=lookupItem)
 button.pack(padx=5, pady=20,side=tk.LEFT)
 
+onlineButton = ttk.Checkbutton(searchBar, text="Online", variable = toggleOnline, style='My.TCheckbutton')
+onlineButton.pack(padx=5, pady=20,side=tk.LEFT)
+
+style = ttk.Style(searchBar)
+style.theme_use('clam')
+# configure custom checkbutton style (don't pass unknown kwargs to configure)
+style.configure('My.TCheckbutton', background=background_color, foreground='white')
+style.map('My.TCheckbutton',
+          background=[('selected', '#3cb371'), ('active', '#ff8c00')],
+          foreground=[('selected', 'black')])
 
 #overall stats
 infoFrame= tk.Frame(root, bg=background_color)
@@ -270,11 +337,6 @@ graph2 = FigureCanvasTkAgg(fig2, master=graphFrame)
 graph2_widget = graph2.get_tk_widget()
 graph2_widget.grid(row=1, column=0, sticky="nsew",padx=2,pady=2)
 
-
-
-
-
-
 # data display
 
 tableFrame = tk.Frame(infoFrame, bg=background_color)
@@ -290,9 +352,12 @@ tableFrame.columnconfigure(0,weight=1)
 tableFrame.rowconfigure(0,weight=1)
 tableFrame.rowconfigure(1,weight=1)
 
-
-
 table.config(yscrollcommand=tableScrollBar.set)
+
+#grofit set calculator
+
+grofitButton = tk.Button(searchBar, text="Run Grofit Search", command=grofitSearch)
+grofitButton.pack(padx=5, pady=20,side=tk.RIGHT)
 
 
 
@@ -311,7 +376,6 @@ pd.set_option('display.max_columns', None)
 #pd.set_option('display.width', None)    
 
 
-print()
 
 
 
