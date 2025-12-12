@@ -14,7 +14,8 @@ background_color_2 = "#34354B"
 test_color = "#69d928"
 test_color_2 = "#d70e0e"
 
-lines_in_set_list = 47
+lines_in_warframe_list = 47
+numGalvanizedItems = 12
 
 #TODO click on username to generate warframe chat message for item
 #TODO add the guns to prime set list
@@ -59,8 +60,12 @@ def parse(data,itemRank=0):
     else:
         df = df[["type","platinum","user.ingameName","user.status","updatedAt"]]
 
+
     df = df.sort_values(by="platinum")
 
+    #remove lowest price & 1 plat prices (most often not real listings)
+
+    df = df.iloc[1:]
     df = df[df["platinum"] > 1]
 
     return df    
@@ -80,7 +85,7 @@ def getStatistics(data,rank=0):
     medPrice = data["platinum"].median()
     standDev = round(data["platinum"].std(),2)
 
-    return {"lowest price":lowestPrice, "average price":avgPrice, "median price": medPrice}
+    return {"lowest":lowestPrice, "average":avgPrice, "median": medPrice}
 
 def getTimeStatistics(data,rank=0):
 
@@ -111,31 +116,30 @@ def getTimeStatistics(data,rank=0):
     
 # FOR UI
 
-def grofitLookupItem(input):
+def grofitLookupItem(input,parts):
     lowestSum = 0
     inputSet = input.replace(" set","")
-    parts = ["neuroptics blueprint","chassis blueprint","systems blueprint","blueprint"]
+    
     for part in parts:
 
         partInput = f"{inputSet} {part}"
         partData = search(partInput)
-        partData = partData[partData["type"] == "sell"]
 
         if(type(partData) == dict):
-            partPrice= getStatistics(parse(partData))
+            partData = parse(partData)
+            partData = partData[partData["type"] == "sell"]
+            partPrice= getStatistics(partData)
         else:
-            partPrice = {'average price' : "Erorr fetching data", "lowest price" : "Error fetching data"}
+            partPrice = {'average' : "Erorr fetching data", "lowest" : "Error fetching data"}
             
-        lowestSum += partPrice['lowest price'] if partPrice['lowest price'] != "Erorr fetching data" else 0
+        lowestSum += partPrice['lowest'] if partPrice['lowest'] != "Erorr fetching data" else 0
 
     data = getStatistics(parse(search(input)))
 
-    setToPartsRatio = 0
-    if toggleGrofitMode.get():
-        setToPartsRatio = round(data["median price"]/lowestSum,3) if lowestSum > 0 else 0
-    else:
-        setToPartsRatio = round(data["lowest price"]/lowestSum,3) if lowestSum > 0 else 0
-    return {"average": data["average price"], "lowest": data["lowest price"],"median": data["median price"],"parts sum": lowestSum,"set_to_parts_ratio": setToPartsRatio}
+    setToPartsRatioMedian = round(data["median"]/lowestSum,3) if lowestSum > 0 else 0
+    setToPartsRatioLowest = round(data["lowest"]/lowestSum,3) if lowestSum > 0 else 0
+
+    return {"average": data["average"], "lowest": data["lowest"],"median": data["median"],"parts sum": lowestSum,"STP (median)": setToPartsRatioMedian, "STP (lowest)": setToPartsRatioLowest}
 
 def lookupItem():
     input = itemEntry.get()
@@ -161,13 +165,13 @@ def lookupItem():
             if(type(partData) == dict):
                 partPrice= getStatistics(parse(partData))
             else:
-                partPrice = {'average price' : "Erorr fetching data", "lowest price" : "Error fetching data"}
+                partPrice = {'average' : "Erorr fetching data", "lowest" : "Error fetching data"}
             
 
-            avgSum += partPrice['average price'] if isinstance(partPrice['average price'], (int, float)) else 0
-            lowestSum += partPrice['lowest price'] if partPrice['lowest price'] != "Erorr fetching data" else 0
+            avgSum += partPrice['average'] if isinstance(partPrice['average'], (int, float)) else 0
+            lowestSum += partPrice['lowest'] if partPrice['lowest'] != "Erorr fetching data" else 0
 
-            displayText += f"{part}: {partPrice['average price']} platinum, lowest {partPrice['lowest price']} platinum\n"
+            displayText += f"{part}: {partPrice['average']} platinum, lowest {partPrice['lowest']} platinum\n"
         
         displayText += f"Total - Average: {avgSum}, Lowest: {lowestSum}"
         partsDisplay.config(text=displayText)
@@ -191,6 +195,7 @@ def lookupItem():
     if type(data) == str:
         table.insert("end", data)
     else:
+        data = data[data["type"] == "sell"]
         tableData = data[["platinum","user.ingameName"]]
         table.insert("end", tableData.to_string())
 
@@ -270,18 +275,24 @@ def lookupItem():
     # redraw the Tk canvases so the new plots appear
     graph1.draw()
     graph2.draw()
-    
-def grofitSearch():
+
+def baseLookupItem(itemName, rank_val=0):
+    data = parse(search(itemName), rank_val)
+    return getStatistics(data, rank_val)
+  
+def grofitWarframeSearch():
+
+    parts = ["neuroptics blueprint","chassis blueprint","systems blueprint","blueprint"]
     grofitWindow = tk.Toplevel(root)
-    grofitWindow.title("Grofit Search")
-    grofitWindow.geometry("400x300")
+    grofitWindow.title("Grofit Warframe Search")
+    grofitWindow.geometry("350x50")
 
     #read set list from file
     df = pd.DataFrame()
 
     grofit_progress = ttk.Progressbar(grofitWindow, orient="horizontal", length=300, mode="determinate")
     grofit_progress.pack(pady=10)
-    grofit_progress["maximum"] = lines_in_set_list
+    grofit_progress["maximum"] = lines_in_warframe_list
 
     grofitWindow.update_idletasks()       # ensure widgets are created
     grofitWindow.wait_visibility()       # block until shown
@@ -289,25 +300,92 @@ def grofitSearch():
     with open("prime_set_list.txt","r") as f:
         for line in f:
             setName = f"{line.strip()} prime set"
-            result = grofitLookupItem(setName)
+            result = grofitLookupItem(setName,parts)
             result.update({"name": setName})
 
             df = pd.concat([df,pd.DataFrame([result])],ignore_index=True)
             print(f"{setName} - Average: {result['average']} platinum, Median {result['median']} platinum, Lowest: {result['lowest']} platinum, Parts Sum Lowest: {result['parts sum']} platinum")
             grofit_progress.step(1)
             grofitWindow.update_idletasks()
-    
-    df = df.sort_values(by="set_to_parts_ratio", ascending=False)
+
+    def changeRatioMode(data,gText,gButton):
+        print("changing mode")
+        gText.delete("1.0","end")
+        if( toggleGrofitMode.get()):
+            toggleGrofitMode.set(False)
+            gButton.config(text="lowest")
+            data = data.sort_values(by="STP (lowest)", ascending=False)
+        else:
+            toggleGrofitMode.set(True)
+            gButton.config(text="Median")
+            data = data.sort_values(by="STP (median)", ascending=False)
+        gText.insert("end", data.to_string())
+
+    grofitWindow.geometry("900x800")
 
     grofitText = tk.Text(grofitWindow, bg=background_color,fg="white",width=50,wrap=tk.NONE)
     grofitText.pack(fill=BOTH, expand=True)
 
-    grofitText.insert("end", df.to_string())
+    grofitModeButton2 = tk.Button(grofitWindow, text="this will work now")
+    grofitModeButton2.pack(padx=5, pady=20,side=tk.TOP)
+    grofitModeButton2.config(command=lambda: changeRatioMode(df,grofitText,grofitModeButton2))
+
+    changeRatioMode(df,grofitText,grofitModeButton2)
+
+def grofitGalvanizedSearch():
+    grofitWindow = tk.Toplevel(root)
+    grofitWindow.title("Grofit Galvanized Search")
+    grofitWindow.geometry("350x50")
+
+    #read set list from file
+    df = pd.DataFrame()
+
+    grofit_progress = ttk.Progressbar(grofitWindow, orient="horizontal", length=300, mode="determinate")
+    grofit_progress.pack(pady=10)
+    grofit_progress["maximum"] = numGalvanizedItems
+
+    grofitWindow.update_idletasks()       # ensure widgets are created
+    grofitWindow.wait_visibility()       # block until shown
+
+    with open("galvanized_item_list.txt","r") as f:
+        for line in f:
+            modName = f"galvanized {line.strip()}"
+            result = baseLookupItem(modName)
+            result.update({"name": modName})
+
+            df = pd.concat([df,pd.DataFrame([result])],ignore_index=True)
+            print(f"{modName} - Average: {result['average']} platinum, Median {result['median']} platinum, Lowest: {result['lowest']} platinum")
+            grofit_progress.step(1)
+            grofitWindow.update_idletasks()
+
+    def changeRatioMode(data,gText,gButton):
+        print("changing mode")
+        gText.delete("1.0","end")
+        if( toggleGrofitMode.get()):
+            toggleGrofitMode.set(False)
+            gButton.config(text="lowest")
+            data = data.sort_values(by="lowest")
+        else:
+            toggleGrofitMode.set(True)
+            gButton.config(text="Median")
+            data = data.sort_values(by="median")
+        gText.insert("end", data.to_string())
+
+    grofitWindow.geometry("450x500")
+
+    grofitText = tk.Text(grofitWindow, bg=background_color,fg="white",width=50,wrap=tk.NONE)
+    grofitText.pack(fill=BOTH, expand=True)
+
+    grofitModeButton2 = tk.Button(grofitWindow, text="this will work now")
+    grofitModeButton2.pack(padx=5, pady=20,side=tk.TOP)
+    grofitModeButton2.config(command=lambda: changeRatioMode(df,grofitText,grofitModeButton2))
+
+    changeRatioMode(df,grofitText,grofitModeButton2)
+        
 
 
 
-
-
+    
 
 root = tk.Tk()
 root.title("Market manipulator 3000") # Set the window title
@@ -416,19 +494,12 @@ table.config(yscrollcommand=tableScrollBar.set)
 
 #grofit set calculator
 
-grofitButton = tk.Button(searchBar, text="Run Grofit Search", command=grofitSearch)
+grofitButton = tk.Button(searchBar, text="Run Grofit Search", command=grofitWarframeSearch)
 grofitButton.pack(padx=5, pady=20,side=tk.RIGHT)
 
-def changeGrofitMode():
-    if toggleGrofitMode.get():
-        toggleGrofitMode.set(False)
-        grofitModeButton.config(text="lowest")
-    else:
-        toggleGrofitMode.set(True)
-        grofitModeButton.config(text="median")
+galvaniedButton = tk.Button(searchBar, text="Run Galvanized Search",command=grofitGalvanizedSearch)
+galvaniedButton.pack(padx=5, pady=20,side=tk.RIGHT)
 
-grofitModeButton = tk.Button(searchBar, text="lowest", command=changeGrofitMode)
-grofitModeButton.pack(padx=5, pady=20,side=tk.RIGHT)
 
 
 
