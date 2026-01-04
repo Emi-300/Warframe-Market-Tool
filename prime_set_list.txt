@@ -11,6 +11,7 @@ gara
 garuda
 gauss
 grendel
+gyre
 harrow
 hildryn
 hydroid
