@@ -31,6 +31,7 @@ def search(itemName):
     response = requests.get(url)
     
     if response.status_code == 200:
+        print(response.status_code)
         data = response.json()
         # Process the data (e.g., get the 90-day average price)
         # The structure will be data['payload']['statistics_live']['48hours'][...]
@@ -138,8 +139,9 @@ def grofitLookupItem(input,parts):
 
     setToPartsRatioMedian = round(data["median"]/lowestSum,3) if lowestSum > 0 else 0
     setToPartsRatioLowest = round(data["lowest"]/lowestSum,3) if lowestSum > 0 else 0
+    medianToLowestRatio = round(data["median"]/data["lowest"],3) if data["lowest"] > 0 else 0
 
-    return {"average": data["average"], "lowest": data["lowest"],"median": data["median"],"parts sum": lowestSum,"STP (median)": setToPartsRatioMedian, "STP (lowest)": setToPartsRatioLowest}
+    return {"average": data["average"], "lowest": data["lowest"],"median": data["median"],"parts sum": lowestSum,"STP (median)": setToPartsRatioMedian, "STP (lowest)": setToPartsRatioLowest, "MTL": medianToLowestRatio}
 
 def lookupItem():
     input = itemEntry.get()
@@ -311,14 +313,24 @@ def grofitWarframeSearch():
     def changeRatioMode(data,gText,gButton):
         print("changing mode")
         gText.delete("1.0","end")
-        if( toggleGrofitMode.get()):
-            toggleGrofitMode.set(False)
+
+        if(toggleGrofitMode.get() == 0):
+            toggleGrofitMode.set(1)
             gButton.config(text="lowest")
             data = data.sort_values(by="STP (lowest)", ascending=False)
-        else:
-            toggleGrofitMode.set(True)
+        elif(toggleGrofitMode.get() == 1):
+            toggleGrofitMode.set(2)
             gButton.config(text="Median")
             data = data.sort_values(by="STP (median)", ascending=False)
+            
+        else:
+            toggleGrofitMode.set(0)
+            gButton.config(text="MTL")
+            data = data.sort_values(by="MTL", ascending=False)
+        
+        gText.insert("end", data.to_string())
+
+        
         gText.insert("end", data.to_string())
 
     grofitWindow.geometry("900x800")
@@ -361,14 +373,21 @@ def grofitGalvanizedSearch():
     def changeRatioMode(data,gText,gButton):
         print("changing mode")
         gText.delete("1.0","end")
-        if( toggleGrofitMode.get()):
-            toggleGrofitMode.set(False)
+
+        if(toggleGrofitMode.get() == 0):
+            toggleGrofitMode.set(1)
             gButton.config(text="lowest")
             data = data.sort_values(by="lowest")
-        else:
-            toggleGrofitMode.set(True)
+        elif(toggleGrofitMode.get() == 1):
+            toggleGrofitMode.set(2)
             gButton.config(text="Median")
             data = data.sort_values(by="median")
+            
+        else:
+            toggleGrofitMode.set(0)
+            gButton.config(text="LTA")
+            data = data.sort_values(by="LTA")
+        
         gText.insert("end", data.to_string())
 
     grofitWindow.geometry("450x500")
@@ -395,7 +414,9 @@ root.configure(bg=background_color)
 #search bar
 
 toggleOnline = tk.BooleanVar()
-toggleGrofitMode = tk.BooleanVar()
+toggleOnline.set(True)
+toggleGrofitMode = tk.IntVar()
+toggleGrofitMode.set(0)
 
 searchBar = tk.Frame(root, bg=background_color)
 searchBar.pack(side=tk.TOP,fill = BOTH, expand = False)
